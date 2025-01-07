@@ -1,1 +1,108 @@
+#include <MPU6050_tockn.h>
+#include <Wire.h>
+
+// Definições de pinos do motor
+int IN1 = 3;
+int IN2 = 9;
+int ENA = 5;  // Pino PWM para controle de velocidade do motor A (Motor 1)
+int IN3 = 10;
+int IN4 = 11;
+int ENB = 6;  // Pino PWM para controle de velocidade do motor B (Motor 2)
+
+// Definições
+#define MPU6050_ADDR 0x68 // Endereço quando o pino AD0 estiver ligado ao GND
+
+// Instanciando objetos
+MPU6050 mpu6050(Wire);
+
+// Variáveis para controle PID
+float anguloX;
+float anguloY;
+float anguloZ;
+float erroAnterior = 0;
+float integral = 0;
+
+// Constantes do PID (ajuste conforme necessário)
+float Kp = 55;  // Proporcional
+float Ki = 65;  // Integral
+float Kd = 1.6;  // Derivativo
+
+// Compensação de velocidade
+float compensacaoMotor2 = 0.94; // Reduz o PWM do Motor 2 em 20%
+
+unsigned long controleTempo;
+unsigned long tempoAnterior;
+
+void setup() {
+  Serial.begin(9600);
+  
+  Wire.begin();
+  mpu6050.begin();
+  mpu6050.calcGyroOffsets(false); // Mudar para "true" se quiser visualizar informações de calibração no monitor serial
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  
+  tempoAnterior = millis();
+}
+
+void loop() {
+  mpu6050.update();
+
+  // Guarda na memória os valores enviados pelo giroscópio
+  anguloX = mpu6050.getAngleX();
+
+  anguloY = mpu6050.getAngleY();
+  anguloZ = mpu6050.getAngleZ();
+
+  
+
+  // Controle PID
+  float setpoint = 3;  // Ângulo desejado
+  float erro = setpoint - anguloX;
+
+  // Tolerância para considerar o robô "parado"
+  float tolerancia = 0.5;
+
+  // Calcula o tempo decorrido
+  unsigned long tempoAtual = millis();
+  float deltaTempo = (tempoAtual - tempoAnterior) / 1000.0;
+  tempoAnterior = tempoAtual;
+
+  integral += erro * deltaTempo;
+  float derivativo = (erro - erroAnterior) / deltaTempo;
+  erroAnterior = erro;
+
+  float controle = Kp * erro + Ki * integral + Kd * derivativo;
+  controle = constrain(controle, -255, 255); // Limita o valor de controle para os limites de PWM
+
+  // Se o erro estiver dentro da tolerância, para os motores
+  if (abs(erro) <= tolerancia) {
+    analogWrite(ENA, 0);
+    analogWrite(ENB, 0);
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
+  } else if (controle > 0) {
+    analogWrite(ENA, controle ); 
+    analogWrite(ENB, controle); // Aplicando compensação ao Motor 2
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+  } else {
+    analogWrite(ENA, -controle ); 
+    analogWrite(ENB, -controle ); // Aplicando compensação ao Motor 2
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+  }
+  
+}
 
