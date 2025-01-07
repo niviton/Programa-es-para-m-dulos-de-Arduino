@@ -1,0 +1,38 @@
+// Definição dos pinos
+const int trigPin = 9; // Pino TRIG conectado ao pino digital 9
+const int echoPin = 10; // Pino ECHO conectado ao pino digital 10
+long duration;          // Variável para armazenar o tempo de viagem do sinal
+float distance;         // Variável para armazenar a distância calculada
+
+void setup() {
+  pinMode(trigPin, OUTPUT); // Define o pino TRIG como saída
+  pinMode(echoPin, INPUT);  // Define o pino ECHO como entrada
+  Serial.begin(9600);      // Inicia a comunicação serial
+}
+
+void ultrasom() {
+  // Envia um pulso de 10 microsegundos no TRIG
+  digitalWrite(trigPin, LOW); // Garante que o TRIG está em nível baixo
+  delayMicroseconds(2);       // Aguarda 2 microsegundos
+  digitalWrite(trigPin, HIGH);// Envia um pulso de 10 microsegundos
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW); // Finaliza o pulso
+
+  // Mede o tempo de viagem do pulso no pino ECHO
+  duration = pulseIn(echoPin, HIGH);
+
+  // Calcula a distância em centímetros
+  // Velocidade do som: 34300 cm/s -> distância = (tempo / 2) * (velocidade do som)
+  distance = (duration / 2.0) * 0.0343;
+}
+
+void loop() {
+  ultrasom(); // Chama a função para medir a distância
+
+  // Exibe a distância no monitor serial
+  Serial.print("Distância: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  delay(500); // Aguarda meio segundo antes da próxima leitura
+}
