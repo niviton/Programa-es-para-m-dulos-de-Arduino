@@ -1,0 +1,47 @@
+#include <Keypad.h> // Biblioteca do Keypad
+
+// Configuração do teclado matricial
+const byte ROWS = 4; // Número de linhas do teclado
+const byte COLS = 3; // Número de colunas do teclado
+
+// Mapeamento das teclas do teclado
+char keys[ROWS][COLS] = {
+  {'1', '2', '3'},
+  {'4', '5', '6'},
+  {'7', '8', '9'},
+  {'*', '0', '#'}
+};
+
+// Pinos onde as linhas e colunas estão conectadas
+byte rowPins[ROWS] = {9, 8, 7, 6};
+byte colPins[COLS] = {5, 4, 3};
+
+// Instância do teclado
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+// Configuração do LED
+const int ledPin = 13; // Pino do LED
+String senha = "1234"; // Senha correta
+String entrada = "";   // Entrada do usuário
+
+void setup() {
+  pinMode(ledPin, OUTPUT); // Configura o pino do LED como saída
+  digitalWrite(ledPin, LOW); // Garante que o LED comece apagado
+}
+
+void loop() {
+  char tecla = keypad.getKey(); // Lê uma tecla pressionada
+
+  if (tecla) { // Se uma tecla foi pressionada
+    entrada += tecla; // Adiciona a tecla à entrada do usuário
+
+    if (entrada.length() == senha.length()) { // Verifica se a senha foi completamente digitada
+      if (entrada == senha) {
+        digitalWrite(ledPin, HIGH); // Acende o LED
+        delay(3000); // Mantém o LED aceso por 3 segundos
+        digitalWrite(ledPin, LOW); // Apaga o LED
+      }
+      entrada = ""; // Reseta a entrada após verificar
+    }
+  }
+}
