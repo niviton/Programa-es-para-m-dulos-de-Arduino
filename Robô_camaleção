@@ -1,1 +1,240 @@
+#include <Wire.h>
+#include "Adafruit_TCS34725.h"
+#include <FastLED.h>
+#include <EEPROM.h>
+
+// Definições da fita de LED
+#define NUM_LEDS 144    // Número de LEDs na sua fita
+#define DATA_PIN 7     // Pino de dados da fita de LED FastLED
+
+CRGB leds[NUM_LEDS];
+
+// Endereços de armazenamento na EEPROM para cada cor
+#define ADDR_FLAG 0
+#define ADDR_WHITE 1
+#define ADDR_BLACK 9
+#define ADDR_RED 17
+#define ADDR_GREEN 25
+#define ADDR_BLUE 33
+#define ADDR_YELLOW 41
+#define ADDR_PINK 49
+#define ADDR_PURPLE 57
+#define ADDR_ORANGE 65
+#define ADDR_LIGHT_GREEN 73
+#define ADDR_LIGHT_BLUE 81
+
+#define CALIBRATION_FLAG 0xAA  // Um valor arbitrário para indicar que a calibração foi feita
+
+#define ERROR_MARGIN 0.08  // Margem de erro para comparação de cores
+
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_1X);
+
+struct ColorCalibration {
+  uint16_t r;
+  uint16_t g;
+  uint16_t b;
+  uint16_t c;
+};
+
+ColorCalibration calibWhite, calibBlack, calibRed, calibGreen, calibBlue, calibYellow, calibPink, calibPurple, calibOrange, calibLightGreen, calibLightBlue;
+
+void setup(void) {
+  Serial.begin(9600);
+  FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
+  
+  if (tcs.begin()) {
+    Serial.println("Sensor Ativo");
+  } else {
+    Serial.println("Sensor TCS34725 nao encontrado ... verifique as conexoes");
+    while (1);
+  }
+
+  if (EEPROM.read(ADDR_FLAG) == CALIBRATION_FLAG) {
+    loadCalibrationData();
+    Serial.println("Dados de calibração carregados da EEPROM.");
+  } else {
+    Serial.println("Nenhuma calibração encontrada. Calibração necessária.");
+  }
+  
+  Serial.println("Coloque o sensor sobre uma superfície preta e pressione 'p', depois repita para branco ('w'), vermelho ('r'), verde ('g'), azul ('b'), amarelo ('y'), rosa ('k'), roxo ('u'), laranja ('o'), verde claro ('v'), e azul claro ('a').");
+}
+
+void loop(void) {
+  if (Serial.available()) {
+    char ch = Serial.read();
+    if (ch == 'p') {
+      calibrateColor(&calibBlack, "Preto", ADDR_BLACK);
+    } else if (ch == 'w') {
+      calibrateColor(&calibWhite, "Branco", ADDR_WHITE);
+    } else if (ch == 'r') {
+      calibrateColor(&calibRed, "Vermelho", ADDR_RED);
+    } else if (ch == 'g') {
+      calibrateColor(&calibGreen, "Verde", ADDR_GREEN);
+    } else if (ch == 'b') {
+      calibrateColor(&calibBlue, "Azul", ADDR_BLUE);
+    } else if (ch == 'y') {
+      calibrateColor(&calibYellow, "Amarelo", ADDR_YELLOW);
+    } else if (ch == 'k') {
+      calibrateColor(&calibPink, "Rosa", ADDR_PINK);
+    } else if (ch == 'u') {
+      calibrateColor(&calibPurple, "Roxo", ADDR_PURPLE);
+    } else if (ch == 'o') {
+      calibrateColor(&calibOrange, "Laranja", ADDR_ORANGE);
+    } else if (ch == 'v') {
+      calibrateColor(&calibLightGreen, "Verde Claro", ADDR_LIGHT_GREEN);
+    } else if (ch == 'a') {
+      calibrateColor(&calibLightBlue, "Azul Claro", ADDR_LIGHT_BLUE);
+    }
+  }
+  
+  uint16_t r, g, b, c;
+  tcs.getRawData(&r, &g, &b, &c);
+
+  int cor;
+  if (isColorMatch(r, g, b, c, calibBlack)) {
+    cor = 0; // Preto
+  } else if (isColorMatch(r, g, b, c, calibWhite)) {
+    cor = 1; // Branco
+  } else if (isColorMatch(r, g, b, c, calibRed)) {
+    cor = 2; // Vermelho
+  } else if (isColorMatch(r, g, b, c, calibGreen)) {
+    cor = 3; // Verde
+  } else if (isColorMatch(r, g, b, c, calibBlue)) {
+    cor = 4; // Azul
+  } else if (isColorMatch(r, g, b, c, calibYellow)) {
+    cor = 5; // Amarelo
+  } else if (isColorMatch(r, g, b, c, calibPink)) {
+    cor = 6; // Rosa
+  } else if (isColorMatch(r, g, b, c, calibPurple)) {
+    cor = 7; // Roxo
+  } else if (isColorMatch(r, g, b, c, calibOrange)) {
+    cor = 8; // Laranja
+  } else if (isColorMatch(r, g, b, c, calibLightGreen)) {
+    cor = 9; // Verde Claro
+  } else if (isColorMatch(r, g, b, c, calibLightBlue)) {
+    cor = 10; // Azul Claro
+  } else {
+    cor = -1; // Cor não reconhecida
+  }
+
+  Serial.print("Red: ");
+  Serial.print(r, DEC);
+  Serial.print(" ");
+  
+  Serial.print("Green: ");
+  Serial.print(g, DEC);
+  Serial.print(" ");
+  
+  Serial.print("Blue: ");
+  Serial.print(b, DEC);
+  Serial.print(" ");
+  
+  Serial.print("Clear: ");
+  Serial.print(c, DEC);
+  Serial.println(" ");
+
+  static int corAtual = -1;
+  if (corAtual != cor) {
+    CRGB corNova;
+
+    switch (cor) {
+      case 0: corNova = CRGB::Black; break;
+      case 1: corNova = CRGB::White; break;
+      case 2: corNova = CRGB::Red; break;
+      case 3: corNova = CRGB::Green; break;
+      case 4: corNova = CRGB::Blue; break;
+      case 5: corNova = CRGB::Yellow; break;
+      case 6: corNova = CRGB(255, 30, 100); break; // Rosa
+      case 7: corNova = CRGB::Purple; break;
+      case 8: corNova = CRGB(210, 50, 0); break; // Laranja
+      case 9: corNova = CRGB(170, 255, 20); break; // Verde Claro
+      case 10: corNova = CRGB(50, 50, 255); break; // Azul Claro
+      default: corNova = CRGB::Green; break; // Cor padrão
+    }
+
+    realizarTransicao(leds[0], corNova, 1000); // Transição de 1 segundo (1000 ms)
+    corAtual = cor;
+  }
+
+  FastLED.show();
+  delay(100);
+}
+
+void calibrateColor(ColorCalibration* calib, const char* colorName, int eepromAddr) {
+  uint32_t startTime = millis();
+  uint16_t r, g, b, c;
+  uint32_t sumR = 0, sumG = 0, sumB = 0, sumC = 0;
+  int count = 0;
+
+  Serial.print("Calibrando ");
+  Serial.print(colorName);
+  Serial.println("...");
+
+  while (millis() - startTime < 10000) {
+    tcs.getRawData(&r, &g, &b, &c);
+    sumR += r;
+    sumG += g;
+    sumB += b;
+    sumC += c;
+    count++;
+    delay(10); // Pequeno delay para suavizar a leitura
+  }
+
+  calib->r = sumR / count;
+  calib->g = sumG / count;
+  calib->b = sumB / count;
+  calib->c = sumC / count;
+
+  saveCalibrationData(*calib, eepromAddr);
+  EEPROM.write(ADDR_FLAG, CALIBRATION_FLAG); // Marcar calibração como feita
+
+  Serial.print("Calibração de ");
+  Serial.print(colorName);
+  Serial.println(" concluída.");
+}
+
+bool isColorMatch(uint16_t r, uint16_t g, uint16_t b, uint16_t c, ColorCalibration calib) {
+  return (r >= calib.r * (1.0 - ERROR_MARGIN) && r <= calib.r * (1.0 + ERROR_MARGIN) &&
+          g >= calib.g * (1.0 - ERROR_MARGIN) && g <= calib.g * (1.0 + ERROR_MARGIN) &&
+          b >= calib.b * (1.0 - ERROR_MARGIN) && b <= calib.b * (1.0 + ERROR_MARGIN) &&
+          c >= calib.c * (1.0 - ERROR_MARGIN) && c <= calib.c * (1.0 + ERROR_MARGIN));
+}
+
+void saveCalibrationData(ColorCalibration calib, int eepromAddr) {
+  EEPROM.put(eepromAddr, calib);
+}
+
+void loadCalibrationData() {
+  EEPROM.get(ADDR_BLACK, calibBlack);
+  EEPROM.get(ADDR_WHITE, calibWhite);
+  EEPROM.get(ADDR_RED, calibRed);
+  EEPROM.get(ADDR_GREEN, calibGreen);
+  EEPROM.get(ADDR_BLUE, calibBlue);
+  EEPROM.get(ADDR_YELLOW, calibYellow);
+  EEPROM.get(ADDR_PINK, calibPink);
+  EEPROM.get(ADDR_PURPLE, calibPurple);
+  EEPROM.get(ADDR_ORANGE, calibOrange);
+  EEPROM.get(ADDR_LIGHT_GREEN, calibLightGreen);
+  EEPROM.get(ADDR_LIGHT_BLUE, calibLightBlue);
+}
+
+// Função para interpolar entre duas cores
+CRGB interpolarCor(CRGB corInicial, CRGB corFinal, float t) {
+    uint8_t r = (1 - t) * corInicial.r + t * corFinal.r;
+    uint8_t g = (1 - t) * corInicial.g + t * corFinal.g;
+    uint8_t b = (1 - t) * corInicial.b + t * corFinal.b;
+    return CRGB(r, g, b);
+}
+
+// Função para realizar a transição suave entre duas cores
+void realizarTransicao(CRGB corInicial, CRGB corFinal, int tempoTransicao) {
+    for (float t = 0.0; t <= 1.0; t += 0.02) {
+        CRGB corInterpolada = interpolarCor(corInicial, corFinal, t);
+        for (int i = 0; i < NUM_LEDS; i++) {
+            leds[i] = corInterpolada;
+        }
+        FastLED.show();
+        delay(tempoTransicao / 50); // Divide o tempo total de transição pelo número de passos
+    }
+}
 
