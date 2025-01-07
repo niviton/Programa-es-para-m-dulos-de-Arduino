@@ -1,1 +1,17 @@
+#include <Servo.h>
+
+Servo meuServo;  // Cria um objeto servo
+
+void setup() {
+  meuServo.attach(9);  // Conecta o servo ao pino digital 9
+}
+
+void loop() {
+  meuServo.write(0);   // Move o servo para 0 graus
+  delay(1000);         // Espera 1 segundo
+  meuServo.write(90);  // Move o servo para 90 graus
+  delay(1000);         // Espera 1 segundo
+  meuServo.write(180); // Move o servo para 180 graus
+  delay(1000);         // Espera 1 segundo
+}
 
