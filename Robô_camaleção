@@ -1,3 +1,4 @@
+
 #include <Wire.h>
 #include "Adafruit_TCS34725.h"
 #include <FastLED.h>
@@ -6,6 +7,7 @@
 // Definições da fita de LED
 #define NUM_LEDS 144    // Número de LEDs na sua fita
 #define DATA_PIN 7     // Pino de dados da fita de LED FastLED
+#define BRIGHTNESS  100
 
 CRGB leds[NUM_LEDS];
 
@@ -38,8 +40,16 @@ struct ColorCalibration {
 
 ColorCalibration calibWhite, calibBlack, calibRed, calibGreen, calibBlue, calibYellow, calibPink, calibPurple, calibOrange, calibLightGreen, calibLightBlue;
 
+// Declaração de brilho (intensidade global)
+int brilho = 10;  // Brilho inicial máximo (0 a 255)
+
+// Declarando o protótipo da função realizarTransicao
+void realizarTransicao(CRGB corInicial, CRGB corFinal, int tempoTransicao);
+void ajustarIntensidade(int intensidade);
+
 void setup(void) {
   Serial.begin(9600);
+   FastLED.setBrightness( BRIGHTNESS );
   FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
   
   if (tcs.begin()) {
@@ -84,6 +94,14 @@ void loop(void) {
       calibrateColor(&calibLightGreen, "Verde Claro", ADDR_LIGHT_GREEN);
     } else if (ch == 'a') {
       calibrateColor(&calibLightBlue, "Azul Claro", ADDR_LIGHT_BLUE);
+    } else if (ch == '+') {
+      // Aumentar o brilho
+      if (brilho < 255) brilho += 10;
+      ajustarIntensidade(brilho);
+    } else if (ch == '-') {
+      // Diminuir o brilho
+      if (brilho > 0) brilho -= 10;
+      ajustarIntensidade(brilho);
     }
   }
   
@@ -226,7 +244,7 @@ CRGB interpolarCor(CRGB corInicial, CRGB corFinal, float t) {
     return CRGB(r, g, b);
 }
 
-// Função para realizar a transição suave entre duas cores
+// Função para realizar a transição suave entre cores
 void realizarTransicao(CRGB corInicial, CRGB corFinal, int tempoTransicao) {
     for (float t = 0.0; t <= 1.0; t += 0.02) {
         CRGB corInterpolada = interpolarCor(corInicial, corFinal, t);
@@ -238,3 +256,7 @@ void realizarTransicao(CRGB corInicial, CRGB corFinal, int tempoTransicao) {
     }
 }
 
+// Função para ajustar a intensidade do brilho
+void ajustarIntensidade(int intensidade) {
+    FastLED.setBrightness(intensidade);
+}
