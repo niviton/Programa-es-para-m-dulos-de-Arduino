@@ -1,0 +1,129 @@
+#include <Adafruit_Fingerprint.h>
+#include <EEPROM.h>
+
+#define BUTTON_PIN 15 // Botão para cadastrar digital
+
+HardwareSerial mySerial(2);  // UART2 (RX=16, TX=17)
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+int nextID = 1;  // ID para o próximo usuário
+
+void setup() {
+  Serial.begin(115200);
+  mySerial.begin(57600, SERIAL_8N1, 16, 17);
+
+  pinMode(BUTTON_PIN, INPUT_PULLDOWN);
+
+
+  EEPROM.begin(512);  // Inicializa EEPROM
+
+  Serial.println("Iniciando sensor biométrico...");
+
+  if (finger.verifyPassword()) {
+    Serial.println("Sensor biométrico encontrado!");
+  } else {
+    Serial.println("Sensor NÃO encontrado!");
+    while (1);
+  }
+}
+
+void loop() {
+  if (digitalRead(BUTTON_PIN) == HIGH) {
+    delay(100);  // Evita múltiplas leituras do botão
+    cadastrarDigital();
+  }
+
+  int leitura = getFingerprintID();
+  if (leitura > 0) {
+    Serial.print("Acesso liberado para: ");
+    Serial.println(getName(leitura));
+  } else {
+    Serial.println("Nenhuma digital reconhecida...");
+  }
+  delay(2000);
+}
+
+// Função para cadastrar digital
+void cadastrarDigital() {
+  Serial.print("Cadastro de nova digital. ID: ");
+  Serial.println(nextID);
+
+  while (getFingerprintEnroll(nextID) != FINGERPRINT_OK);
+
+  Serial.println("Digite o nome do usuário:");
+  while (Serial.available() == 0);
+  String nome = Serial.readStringUntil('\n');
+  salvarNome(nextID, nome);
+
+  Serial.println("Cadastro concluído!");
+  nextID++;
+}
+
+// Função para armazenar nome na EEPROM
+void salvarNome(int id, String nome) {
+  int addr = id * 20;  // Cada nome ocupa 20 bytes
+  for (int i = 0; i < nome.length(); i++) {
+    EEPROM.write(addr + i, nome[i]);
+  }
+  EEPROM.write(addr + nome.length(), '\0'); // Terminar string
+  EEPROM.commit();
+}
+
+// Função para recuperar nome do usuário
+String getName(int id) {
+  int addr = id * 20;
+  char nome[20];
+  for (int i = 0; i < 20; i++) {
+    nome[i] = EEPROM.read(addr + i);
+  }
+  return String(nome);
+}
+
+// Função para cadastrar digital no sensor
+uint8_t getFingerprintEnroll(int id) {
+  int p = -1;
+  Serial.println("Coloque o dedo no sensor...");
+
+  while (p != FINGERPRINT_OK) {
+    p = finger.getImage();
+    if (p == FINGERPRINT_NOFINGER) Serial.print(".");
+  }
+  Serial.println("\nImagem capturada!");
+
+  p = finger.image2Tz(1);
+  if (p != FINGERPRINT_OK) return p;
+
+  Serial.println("Remova o dedo...");
+  delay(2000);
+  while (finger.getImage() != FINGERPRINT_NOFINGER);
+
+  Serial.println("Coloque o mesmo dedo novamente...");
+  while (finger.getImage() != FINGERPRINT_OK);
+  
+  p = finger.image2Tz(2);
+  if (p != FINGERPRINT_OK) return p;
+
+  Serial.println("Criando modelo...");
+  p = finger.createModel();
+  if (p != FINGERPRINT_OK) return p;
+
+  Serial.println("Armazenando digital...");
+  p = finger.storeModel(id);
+  return p;
+}
+
+// Função para reconhecer digital
+int getFingerprintID() {
+  int p = finger.getImage();
+  if (p != FINGERPRINT_OK) return -1;
+
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK) return -1;
+
+  p = finger.fingerSearch();
+  if (p == FINGERPRINT_OK) {
+    return finger.fingerID;
+  } else {
+    return -1;
+  }
+}
