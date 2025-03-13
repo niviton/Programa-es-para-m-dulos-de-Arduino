@@ -1,35 +1,35 @@
 #include <Adafruit_Fingerprint.h>
 #include <EEPROM.h>
 
-#define BUTTON_PIN 15 // Botão para cadastrar digital
+#define BUTTON_PIN 15 
+#define MAX_USERS 20  
 
-HardwareSerial mySerial(2);  // UART2 (RX=16, TX=17)
+HardwareSerial mySerial(2);  
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
-int nextID = 1;  // ID para o próximo usuário
+int nextID = 1;
 
 void setup() {
   Serial.begin(115200);
   mySerial.begin(57600, SERIAL_8N1, 16, 17);
-
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
-
-
-  EEPROM.begin(512);  // Inicializa EEPROM
+  EEPROM.begin(512);
 
   Serial.println("Iniciando sensor biométrico...");
 
   if (finger.verifyPassword()) {
-    Serial.println("Sensor biométrico encontrado!");
+    Serial.println("Sensor encontrado!");
   } else {
     Serial.println("Sensor NÃO encontrado!");
     while (1);
   }
+
+  carregarUltimoID();
 }
 
 void loop() {
   if (digitalRead(BUTTON_PIN) == HIGH) {
-    delay(100);  // Evita múltiplas leituras do botão
+    delay(100);
     cadastrarDigital();
   }
 
@@ -40,12 +40,65 @@ void loop() {
   } else {
     Serial.println("Nenhuma digital reconhecida...");
   }
+
+  // 🔥 Verifica comandos do Serial
+  if (Serial.available()) {
+    String comando = Serial.readStringUntil('\n');
+    comando.trim();
+    
+    if (comando.equalsIgnoreCase("apagar")) {
+      apagarTodosOsAcessos();
+    } else if (comando.equalsIgnoreCase("banco de dados")) {
+      listarAcessos();
+    } else if (comando.startsWith("apagar id")) {
+      String idStr = comando.substring(9);  // Corrigido para capturar corretamente o ID
+      idStr.trim();
+      int id = idStr.toInt();
+      if (id > 0 && id <= MAX_USERS) {
+        removerAcesso(id);
+      } else {
+        Serial.println("⚠️ ID inválido! Digite um número válido.");
+      }
+    }
+  }
+
   delay(2000);
 }
 
-// Função para cadastrar digital
+// 🔥 Apaga TODOS os acessos
+void apagarTodosOsAcessos() {
+  Serial.println("⚠️ Apagando todos os acessos...");
+
+  for (int i = 1; i <= MAX_USERS; i++) {
+    finger.deleteModel(i);   
+    salvarNome(i, "");       
+  }
+
+  salvarUltimoID(1);
+  Serial.println("✅ Todos os acessos foram apagados!");
+}
+
+// 🔥 Listar todos os acessos
+void listarAcessos() {
+  Serial.println("📜 Banco de dados:");
+  for (int i = 1; i <= MAX_USERS; i++) {
+    String nome = getName(i);
+    if (nome.length() > 0) {
+      Serial.print("ID: ");
+      Serial.print(i);
+      Serial.print(" - Nome: ");
+      Serial.println(nome);
+    }
+  }
+}
+
+// 🔥 Cadastro de Digital com Substituição Cíclica
 void cadastrarDigital() {
-  Serial.print("Cadastro de nova digital. ID: ");
+  if (nextID > MAX_USERS) {
+    nextID = 1;
+  }
+
+  Serial.print("Cadastrando nova digital. ID: ");
   Serial.println(nextID);
 
   while (getFingerprintEnroll(nextID) != FINGERPRINT_OK);
@@ -53,23 +106,38 @@ void cadastrarDigital() {
   Serial.println("Digite o nome do usuário:");
   while (Serial.available() == 0);
   String nome = Serial.readStringUntil('\n');
+
   salvarNome(nextID, nome);
+  salvarUltimoID(nextID);
 
   Serial.println("Cadastro concluído!");
   nextID++;
 }
 
-// Função para armazenar nome na EEPROM
+// 🔥 Remover um acesso pelo ID
+void removerAcesso(int id) {
+  Serial.print("Removendo ID: ");
+  Serial.println(id);
+
+  if (finger.deleteModel(id) == FINGERPRINT_OK) {
+    Serial.println("Acesso removido.");
+    salvarNome(id, "");
+  } else {
+    Serial.println("Erro ao remover.");
+  }
+}
+
+// 🔥 Salvar nome na EEPROM
 void salvarNome(int id, String nome) {
-  int addr = id * 20;  // Cada nome ocupa 20 bytes
+  int addr = id * 20;
   for (int i = 0; i < nome.length(); i++) {
     EEPROM.write(addr + i, nome[i]);
   }
-  EEPROM.write(addr + nome.length(), '\0'); // Terminar string
+  EEPROM.write(addr + nome.length(), '\0');
   EEPROM.commit();
 }
 
-// Função para recuperar nome do usuário
+// 🔥 Ler nome da EEPROM
 String getName(int id) {
   int addr = id * 20;
   char nome[20];
@@ -79,7 +147,21 @@ String getName(int id) {
   return String(nome);
 }
 
-// Função para cadastrar digital no sensor
+// 🔥 Salvar último ID usado
+void salvarUltimoID(int id) {
+  EEPROM.write(500, id);
+  EEPROM.commit();
+}
+
+// 🔥 Carregar último ID usado
+void carregarUltimoID() {
+  nextID = EEPROM.read(500);
+  if (nextID == 255) {
+    nextID = 1;
+  }
+}
+
+// 🔥 Cadastrar digital no sensor
 uint8_t getFingerprintEnroll(int id) {
   int p = -1;
   Serial.println("Coloque o dedo no sensor...");
@@ -112,7 +194,7 @@ uint8_t getFingerprintEnroll(int id) {
   return p;
 }
 
-// Função para reconhecer digital
+// 🔥 Reconhecer digital
 int getFingerprintID() {
   int p = finger.getImage();
   if (p != FINGERPRINT_OK) return -1;
