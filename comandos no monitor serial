@@ -1,0 +1,21 @@
+const int LED_PIN = 13;  // Define o pino do LED (pino 13 na maioria das placas Arduino)
+
+void setup() {
+  Serial.begin(9600);      // Inicia a comunicação serial a 9600 baud rate
+  pinMode(LED_PIN, OUTPUT); // Define o pino do LED como saída
+}
+
+void loop() {
+  if (Serial.available() > 0) {  // Verifica se há dados disponíveis no monitor serial
+    char comando = Serial.read();  // Lê o caractere enviado pelo monitor serial
+
+    if (comando == 'L') {  // Se o comando for 'L', liga o LED
+      digitalWrite(LED_PIN, HIGH);
+      Serial.println("LED ligado!");
+    }
+    else if (comando == 'D') {  // Se o comando for 'D', desliga o LED
+      digitalWrite(LED_PIN, LOW);
+      Serial.println("LED desligado!");
+    }
+  }
+}
