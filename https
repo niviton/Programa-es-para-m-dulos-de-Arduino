@@ -1,0 +1,35 @@
+
+#include <WiFi.h>
+#include <HTTPSRedirect.h>
+
+const char* ssid = "VIVIANE";
+const char* password = "bitinha123";
+const char* host = "script.google.com";
+const int httpsPort = 443;
+const char* url = "/macros/s/AKfycbxuhACjQ2s2az-jHWlLf5pQnwRnDxxb8jvETqV2ZvA5170tXaoAH3l3tfii3XCEwCCf/exec";
+
+HTTPSRedirect client(httpsPort);
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  client.setInsecure();
+  client.setPrintResponseBody(true);
+}
+
+void loop() {
+  if (client.connect(host, httpsPort)) {
+    // Correção: Converta a URL para String antes de concatenar
+    String payload = String(url) + "?value1=25&value2=60";
+    
+    client.GET(payload, host);
+    client.stop();
+  }
+  delay(5000);
+}
