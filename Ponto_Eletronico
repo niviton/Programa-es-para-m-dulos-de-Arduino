@@ -1,14 +1,55 @@
+#include <WiFi.h>
+#include <HTTPSRedirect.h>
 #include <Adafruit_Fingerprint.h>
 #include <EEPROM.h>
 
-#define BUTTON_PIN 15 
-#define MAX_USERS 20  
+// ==============================================
+// CONFIGURAÇÕES DE HARDWARE
+// ==============================================
+#define BUTTON_PIN 15
+#define MAX_USERS 20
+#define NAME_LENGTH 20
 
-HardwareSerial mySerial(2);  
+HardwareSerial mySerial(2);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
+// ==============================================
+// CONFIGURAÇÕES DE REDE
+// ==============================================
+const char* ssid = "VIVIANE";
+const char* password = "bitinha123";
+
+// ==============================================
+// CONFIGURAÇÕES GOOGLE SHEETS
+// ==============================================
+const char* hostName = "script.google.com";
+const int httpsPort = 443;
+const char* url = "/macros/s/AKfycbxuhACjQ2s2az-jHWlLf5pQnwRnDxxb8jvETqV2ZvA5170tXaoAH3l3tfii3XCEwCCf/exec";
+
+HTTPSRedirect client(httpsPort);
 int nextID = 1;
 
+// ==============================================
+// PROTÓTIPOS DE FUNÇÃO
+// ==============================================
+void conectarWiFi();
+void enviarRegistro(int id, const String &nome, const String &acao);
+void salvarNome(int id, String nome);
+String getName(int id);
+void salvarUltimoID(int id);
+void carregarUltimoID();
+bool getLastAction(int id);
+void saveLastAction(int id, bool action);
+uint8_t getFingerprintEnroll(int id);
+int getFingerprintID();
+void cadastrarDigital();
+void apagarTodosOsAcessos();
+void listarAcessos();
+void removerAcesso(int id);
+
+// ==============================================
+// SETUP INICIAL
+// ==============================================
 void setup() {
   Serial.begin(115200);
   mySerial.begin(57600, SERIAL_8N1, 16, 17);
@@ -16,32 +57,46 @@ void setup() {
   EEPROM.begin(512);
 
   Serial.println("Iniciando sensor biométrico...");
-
   if (finger.verifyPassword()) {
-    Serial.println("Sensor encontrado!");
+    Serial.println("✅ Sensor encontrado!");
   } else {
-    Serial.println("Sensor NÃO encontrado!");
+    Serial.println("⚠️ ERRO: Sensor NÃO encontrado!");
     while (1);
   }
+  
+  conectarWiFi();
+  
+  // Configura o cliente HTTPS
+  client.setInsecure();
+  client.setPrintResponseBody(true);
 
   carregarUltimoID();
 }
 
+// ==============================================
+// LOOP PRINCIPAL
+// ==============================================
 void loop() {
+  // Verificar cadastro via botão
   if (digitalRead(BUTTON_PIN) == HIGH) {
     delay(100);
     cadastrarDigital();
   }
 
-  int leitura = getFingerprintID();
-  if (leitura > 0) {
-    Serial.print("Acesso liberado para: ");
-    Serial.println(getName(leitura));
-  } else {
-    Serial.println("Nenhuma digital reconhecida...");
+  // Reconhecer digital e enviar registro para a planilha
+  int id = getFingerprintID();
+  if (id > 0) {
+    String nome = getName(id);
+    bool lastAction = getLastAction(id);
+    String acao = lastAction ? "SAIDA" : "ENTRADA";
+    
+    Serial.printf("[%s] %s - %s\n", acao.c_str(), nome.c_str(), String(millis()).c_str());
+    
+    enviarRegistro(id, nome, acao);
+    saveLastAction(id, !lastAction);
   }
 
-  // 🔥 Verifica comandos do Serial
+  // Verificar comandos via Serial
   if (Serial.available()) {
     String comando = Serial.readStringUntil('\n');
     comando.trim();
@@ -51,34 +106,198 @@ void loop() {
     } else if (comando.equalsIgnoreCase("banco de dados")) {
       listarAcessos();
     } else if (comando.startsWith("apagar id")) {
-      String idStr = comando.substring(9);  // Corrigido para capturar corretamente o ID
+      String idStr = comando.substring(9);
       idStr.trim();
-      int id = idStr.toInt();
-      if (id > 0 && id <= MAX_USERS) {
-        removerAcesso(id);
+      int idCmd = idStr.toInt();
+      if (idCmd > 0 && idCmd <= MAX_USERS) {
+        removerAcesso(idCmd);
       } else {
         Serial.println("⚠️ ID inválido! Digite um número válido.");
       }
     }
   }
-
+  
   delay(2000);
 }
 
-// 🔥 Apaga TODOS os acessos
+// ==============================================
+// FUNÇÕES DE CONEXÃO WiFi
+// ==============================================
+void conectarWiFi() {
+  Serial.print("Conectando ao WiFi...");
+  WiFi.begin(ssid, password);
+  int count = 0;
+  while (WiFi.status() != WL_CONNECTED && count < 20) {
+    delay(500);
+    Serial.print(".");
+    count++;
+  }
+  if(WiFi.status() == WL_CONNECTED){
+    Serial.println("\nWiFi conectado! IP: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("\nFalha na conexão WiFi!");
+  }
+}
+
+// ==============================================
+// COMUNICAÇÃO COM GOOGLE SHEETS
+// ==============================================
+void enviarRegistro(int id, const String &nome, const String &acao) {
+  if (client.connect(hostName, httpsPort)) {
+    String payload = String(url) + "?id=" + String(id) + "&nome=" + nome + "&acao=" + acao;
+    client.GET(payload, hostName);
+    client.stop();
+    Serial.println("Registro enviado para a planilha.");
+  } else {
+    Serial.println("Erro ao conectar com o servidor da planilha.");
+  }
+}
+
+// ==============================================
+// FUNÇÕES DE CADASTRO DE DIGITAIS
+// ==============================================
+void cadastrarDigital() {
+  if (nextID > MAX_USERS) {
+    nextID = 1;
+  }
+  
+  Serial.print("📌 Cadastrando nova digital. ID: ");
+  Serial.println(nextID);
+  
+  uint8_t resultado = getFingerprintEnroll(nextID);
+  if (resultado != FINGERPRINT_OK) {
+    Serial.println("❌ Falha no cadastro da digital. Tente novamente.");
+    return;
+  }
+  
+  Serial.println("Digite o nome do usuário:");
+  while (Serial.available() == 0);
+  String nome = Serial.readStringUntil('\n');
+  nome.trim();
+  
+  if (nome.length() == 0) {
+    nome = "Usuario" + String(nextID);
+  }
+  
+  salvarNome(nextID, nome);
+  salvarUltimoID(nextID);
+  
+  Serial.println("✅ Cadastro concluído!");
+  nextID++;
+}
+
+int getFingerprintID() {
+  int p = finger.getImage();
+  if (p != FINGERPRINT_OK) return -1;
+  
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK) return -1;
+  
+  p = finger.fingerSearch();
+  if (p == FINGERPRINT_OK) {
+    return finger.fingerID;
+  } else {
+    return -1;
+  }
+}
+
+uint8_t getFingerprintEnroll(int id) {
+  int p = -1;
+  Serial.println("👉 Coloque o dedo no sensor...");
+  
+  while (p != FINGERPRINT_OK) {
+    p = finger.getImage();
+    if (p == FINGERPRINT_NOFINGER) {
+      Serial.print(".");
+    } else if (p != FINGERPRINT_OK) {
+      Serial.println("\n⚠️ Erro ao capturar imagem.");
+      return p;
+    }
+  }
+  Serial.println("\n📸 Imagem capturada!");
+  
+  p = finger.image2Tz(1);
+  if (p != FINGERPRINT_OK) return p;
+  
+  Serial.println("✋ Remova o dedo...");
+  delay(2000);
+  while (finger.getImage() != FINGERPRINT_NOFINGER);
+  
+  Serial.println("👉 Coloque o mesmo dedo novamente...");
+  while (finger.getImage() != FINGERPRINT_OK);
+  
+  p = finger.image2Tz(2);
+  if (p != FINGERPRINT_OK) return p;
+  
+  Serial.println("🔄 Criando modelo...");
+  p = finger.createModel();
+  if (p != FINGERPRINT_OK) return p;
+  
+  Serial.println("💾 Armazenando digital...");
+  p = finger.storeModel(id);
+  return p;
+}
+
+// ==============================================
+// FUNÇÕES DE MANIPULAÇÃO DA EEPROM
+// ==============================================
+void salvarNome(int id, String nome) {
+  int addr = id * NAME_LENGTH;
+  for (int i = 0; i < NAME_LENGTH; i++) {
+    EEPROM.write(addr + i, (i < nome.length()) ? nome[i] : 0);
+  }
+  EEPROM.commit();
+}
+
+String getName(int id) {
+  int addr = id * NAME_LENGTH;
+  char buffer[NAME_LENGTH];
+  for (int i = 0; i < NAME_LENGTH; i++) {
+    buffer[i] = EEPROM.read(addr + i);
+  }
+  return String(buffer);
+}
+
+void salvarUltimoID(int id) {
+  EEPROM.write(500, id);
+  EEPROM.commit();
+}
+
+void carregarUltimoID() {
+  nextID = EEPROM.read(500);
+  if (nextID == 255 || nextID == 0 || nextID > MAX_USERS) {
+    nextID = 1;
+  }
+}
+
+bool getLastAction(int id) {
+  int addr = 400 + (id / 8);
+  return bitRead(EEPROM.read(addr), id % 8);
+}
+
+void saveLastAction(int id, bool action) {
+  int addr = 400 + (id / 8);
+  byte value = EEPROM.read(addr);
+  bitWrite(value, id % 8, action);
+  EEPROM.write(addr, value);
+  EEPROM.commit();
+}
+
+// ==============================================
+// FUNÇÕES DE COMANDOS VIA SERIAL
+// ==============================================
 void apagarTodosOsAcessos() {
   Serial.println("⚠️ Apagando todos os acessos...");
-
+  
   for (int i = 1; i <= MAX_USERS; i++) {
-    finger.deleteModel(i);   
-    salvarNome(i, "");       
+    finger.deleteModel(i);
+    salvarNome(i, "");
   }
-
+  
   salvarUltimoID(1);
   Serial.println("✅ Todos os acessos foram apagados!");
 }
 
-// 🔥 Listar todos os acessos
 void listarAcessos() {
   Serial.println("📜 Banco de dados:");
   for (int i = 1; i <= MAX_USERS; i++) {
@@ -92,120 +311,14 @@ void listarAcessos() {
   }
 }
 
-// 🔥 Cadastro de Digital com Substituição Cíclica
-void cadastrarDigital() {
-  if (nextID > MAX_USERS) {
-    nextID = 1;
-  }
-
-  Serial.print("Cadastrando nova digital. ID: ");
-  Serial.println(nextID);
-
-  while (getFingerprintEnroll(nextID) != FINGERPRINT_OK);
-
-  Serial.println("Digite o nome do usuário:");
-  while (Serial.available() == 0);
-  String nome = Serial.readStringUntil('\n');
-
-  salvarNome(nextID, nome);
-  salvarUltimoID(nextID);
-
-  Serial.println("Cadastro concluído!");
-  nextID++;
-}
-
-// 🔥 Remover um acesso pelo ID
 void removerAcesso(int id) {
-  Serial.print("Removendo ID: ");
+  Serial.print("🗑️ Removendo ID: ");
   Serial.println(id);
-
+  
   if (finger.deleteModel(id) == FINGERPRINT_OK) {
-    Serial.println("Acesso removido.");
+    Serial.println("✅ Acesso removido.");
     salvarNome(id, "");
   } else {
-    Serial.println("Erro ao remover.");
-  }
-}
-
-// 🔥 Salvar nome na EEPROM
-void salvarNome(int id, String nome) {
-  int addr = id * 20;
-  for (int i = 0; i < nome.length(); i++) {
-    EEPROM.write(addr + i, nome[i]);
-  }
-  EEPROM.write(addr + nome.length(), '\0');
-  EEPROM.commit();
-}
-
-// 🔥 Ler nome da EEPROM
-String getName(int id) {
-  int addr = id * 20;
-  char nome[20];
-  for (int i = 0; i < 20; i++) {
-    nome[i] = EEPROM.read(addr + i);
-  }
-  return String(nome);
-}
-
-// 🔥 Salvar último ID usado
-void salvarUltimoID(int id) {
-  EEPROM.write(500, id);
-  EEPROM.commit();
-}
-
-// 🔥 Carregar último ID usado
-void carregarUltimoID() {
-  nextID = EEPROM.read(500);
-  if (nextID == 255) {
-    nextID = 1;
-  }
-}
-
-// 🔥 Cadastrar digital no sensor
-uint8_t getFingerprintEnroll(int id) {
-  int p = -1;
-  Serial.println("Coloque o dedo no sensor...");
-
-  while (p != FINGERPRINT_OK) {
-    p = finger.getImage();
-    if (p == FINGERPRINT_NOFINGER) Serial.print(".");
-  }
-  Serial.println("\nImagem capturada!");
-
-  p = finger.image2Tz(1);
-  if (p != FINGERPRINT_OK) return p;
-
-  Serial.println("Remova o dedo...");
-  delay(2000);
-  while (finger.getImage() != FINGERPRINT_NOFINGER);
-
-  Serial.println("Coloque o mesmo dedo novamente...");
-  while (finger.getImage() != FINGERPRINT_OK);
-  
-  p = finger.image2Tz(2);
-  if (p != FINGERPRINT_OK) return p;
-
-  Serial.println("Criando modelo...");
-  p = finger.createModel();
-  if (p != FINGERPRINT_OK) return p;
-
-  Serial.println("Armazenando digital...");
-  p = finger.storeModel(id);
-  return p;
-}
-
-// 🔥 Reconhecer digital
-int getFingerprintID() {
-  int p = finger.getImage();
-  if (p != FINGERPRINT_OK) return -1;
-
-  p = finger.image2Tz();
-  if (p != FINGERPRINT_OK) return -1;
-
-  p = finger.fingerSearch();
-  if (p == FINGERPRINT_OK) {
-    return finger.fingerID;
-  } else {
-    return -1;
+    Serial.println("⚠️ Erro ao remover.");
   }
 }
