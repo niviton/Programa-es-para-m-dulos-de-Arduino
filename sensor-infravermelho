@@ -1,0 +1,30 @@
+// Programa: Leitura analógica do sensor infravermelho MH-Sensor-Series
+// Autor: ChatGPT (versão em português)
+
+// Define o pino analógico
+const int pinoSensor = A0;   // Conecte o pino AO do sensor ao A0 do Arduino
+const int pinoLED = 13;      // LED embutido (para indicar detecção)
+
+void setup() {
+  Serial.begin(9600);        // Inicia comunicação serial
+  pinMode(pinoLED, OUTPUT);  // Define LED como saída
+  Serial.println("Leitura do sensor infravermelho iniciada...");
+}
+
+void loop() {
+  int valor = analogRead(pinoSensor);  // Lê o valor analógico (0 a 1023)
+
+  Serial.print("Valor lido: ");
+  Serial.println(valor);
+
+  // Define um limiar para detecção (ajuste conforme o sensor)
+  if (valor < 500) {   // Quanto menor o valor, mais próximo o objeto
+    Serial.println("Obstáculo detectado!");
+    digitalWrite(pinoLED, HIGH);
+  } 
+  else {
+    digitalWrite(pinoLED, LOW);
+  }
+
+  delay(200);  // Pausa entre leituras
+}
